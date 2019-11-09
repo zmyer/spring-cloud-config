@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -30,24 +30,26 @@ import org.springframework.util.MultiValueMap;
  */
 @Order(Ordered.LOWEST_PRECEDENCE - 100)
 public class GiteaPropertyPathNotificationExtractor
-        extends BasePropertyPathNotificationExtractor {
+		extends BasePropertyPathNotificationExtractor {
 
-    private static final String HEADERS_KEY = "X-Gitea-Event";
+	private static final String HEADERS_KEY = "X-Gitea-Event";
 
-    private static final String HEADERS_VALUE = "push";
-    
-    /**
-     * gitea doesn't return which files have been added/modified/deleted yet.
-     * 
-     * @see https://github.com/go-gitea/gitea/issues/4313
-     */
-    @Override
-    protected void addPaths(Set<String> paths, Collection<Map<String, Object>> commits) {
-        paths.add( "application.yml" );
-    }
+	private static final String HEADERS_VALUE = "push";
 
-    @Override
-    protected boolean requestBelongsToGitRepoManager(MultiValueMap<String, String> headers) {
-        return HEADERS_VALUE.equals(headers.getFirst(HEADERS_KEY));
-    }
+	/**
+	 * gitea doesn't return which files have been added/modified/deleted yet.
+	 *
+	 * related issue: https://github.com/go-gitea/gitea/issues/4313
+	 */
+	@Override
+	protected void addPaths(Set<String> paths, Collection<Map<String, Object>> commits) {
+		paths.add("application.yml");
+	}
+
+	@Override
+	protected boolean requestBelongsToGitRepoManager(
+			MultiValueMap<String, String> headers) {
+		return HEADERS_VALUE.equals(headers.getFirst(HEADERS_KEY));
+	}
+
 }

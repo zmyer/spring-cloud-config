@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,17 +18,14 @@ package org.springframework.cloud.config.monitor;
 
 import java.util.Map;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.Test;
+
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.http.HttpHeaders;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
-
-import static org.hamcrest.Matchers.arrayContainingInAnyOrder;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
-import static org.junit.Assert.assertThat;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Dave Syer
@@ -42,28 +39,29 @@ public class GitlabPropertyPathNotificationExtractorTests {
 
 	@Test
 	public void pushEvent() throws Exception {
-		// See http://doc.gitlab.com/ee/web_hooks/web_hooks.html#push-events
+		// See https://docs.gitlab.com/ee/web_hooks/web_hooks.html#push-events
 		Map<String, Object> value = new ObjectMapper().readValue(
 				new ClassPathResource("pathsamples/gitlab.json").getInputStream(),
 				new TypeReference<Map<String, Object>>() {
 				});
 		this.headers.set("X-Gitlab-Event", "Push Hook");
 		PropertyPathNotification extracted = this.extractor.extract(this.headers, value);
-		assertNotNull(extracted);
+		assertThat(extracted).isNotNull();
 		String[] paths = extracted.getPaths();
-		assertThat("paths was wrong", paths, arrayContainingInAnyOrder("oldapp.yml", "newapp.properties", "application.yml"));
+		assertThat(paths).as("paths was wrong").contains("oldapp.yml",
+				"newapp.properties", "application.yml");
 	}
 
 	@Test
 	public void nonPushEventNotDetected() throws Exception {
-		// See http://doc.gitlab.com/ee/web_hooks/web_hooks.html#push-events
+		// See https://docs.gitlab.com/ee/web_hooks/web_hooks.html#push-events
 		Map<String, Object> value = new ObjectMapper().readValue(
 				new ClassPathResource("pathsamples/gitlab.json").getInputStream(),
 				new TypeReference<Map<String, Object>>() {
 				});
 		this.headers.set("X-Gitlab-Event", "Issue Hook");
 		PropertyPathNotification extracted = this.extractor.extract(this.headers, value);
-		assertNull(extracted);
+		assertThat(extracted).isNull();
 	}
 
 }

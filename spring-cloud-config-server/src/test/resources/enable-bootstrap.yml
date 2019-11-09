@@ -1,4 +1,6 @@
 spring:
+  application:
+    name: enable-bootstrap
   cloud:
     config:
       server:
@@ -10,4 +12,3 @@ encrypt:
     location: classpath:server.jks
     password: letmein
     secret: changeme
-  

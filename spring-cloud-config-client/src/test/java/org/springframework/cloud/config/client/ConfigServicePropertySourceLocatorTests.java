@@ -1,3 +1,19 @@
+/*
+ * Copyright 2018-2019 the original author or authors.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *      https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package org.springframework.cloud.config.client;
 
 import java.io.ByteArrayInputStream;
@@ -10,6 +26,7 @@ import org.hamcrest.core.IsInstanceOf;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Matchers;
 import org.mockito.Mockito;
 
@@ -34,10 +51,10 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertNull;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.springframework.cloud.config.client.ConfigClientProperties.AUTHORIZATION;
+import static org.springframework.cloud.config.environment.EnvironmentMediaType.V2_JSON;
 
 public class ConfigServicePropertySourceLocatorTests {
 
@@ -56,7 +73,18 @@ public class ConfigServicePropertySourceLocatorTests {
 		Environment body = new Environment("app", "master");
 		mockRequestResponseWithoutLabel(new ResponseEntity<>(body, HttpStatus.OK));
 		this.locator.setRestTemplate(this.restTemplate);
-		assertNotNull(this.locator.locate(this.environment));
+
+		ArgumentCaptor<HttpEntity> argumentCaptor = ArgumentCaptor
+				.forClass(HttpEntity.class);
+
+		assertThat(this.locator.locate(this.environment)).isNotNull();
+
+		Mockito.verify(this.restTemplate).exchange(anyString(), any(HttpMethod.class),
+				argumentCaptor.capture(), any(Class.class), anyString(), anyString());
+
+		HttpEntity httpEntity = argumentCaptor.getValue();
+		assertThat(httpEntity.getHeaders().getAccept())
+				.containsExactly(MediaType.parseMediaType(V2_JSON));
 	}
 
 	@Test
@@ -66,7 +94,7 @@ public class ConfigServicePropertySourceLocatorTests {
 		this.locator.setRestTemplate(this.restTemplate);
 		TestPropertyValues.of("spring.cloud.config.label:v1.0.0")
 				.applyTo(this.environment);
-		assertNotNull(this.locator.locate(this.environment));
+		assertThat(this.locator.locate(this.environment)).isNotNull();
 	}
 
 	@Test
@@ -77,16 +105,32 @@ public class ConfigServicePropertySourceLocatorTests {
 		this.locator.setRestTemplate(this.restTemplate);
 		TestPropertyValues.of("spring.cloud.config.label:release/v1.0.0")
 				.applyTo(this.environment);
-		assertNotNull(this.locator.locate(this.environment));
+		assertThat(this.locator.locate(this.environment)).isNotNull();
 	}
 
 	@Test
 	public void sunnyDayWithNoSuchLabel() {
 		mockRequestResponseWithLabel(
-				new ResponseEntity<Void>((Void) null, HttpStatus.NOT_FOUND),
-				"nosuchlabel");
+				new ResponseEntity<>((Void) null, HttpStatus.NOT_FOUND), "nosuchlabel");
 		this.locator.setRestTemplate(this.restTemplate);
-		assertNull(this.locator.locate(this.environment));
+		assertThat(this.locator.locate(this.environment)).isNull();
+	}
+
+	@Test
+	public void sunnyDayWithNoSuchLabelAndFailFast() {
+		ConfigClientProperties defaults = new ConfigClientProperties(this.environment);
+		defaults.setFailFast(true);
+		this.locator = new ConfigServicePropertySourceLocator(defaults);
+		mockRequestResponseWithLabel(
+				new ResponseEntity<>((Void) null, HttpStatus.NOT_FOUND),
+				"release(_)v1.0.0");
+		this.locator.setRestTemplate(this.restTemplate);
+		TestPropertyValues.of("spring.cloud.config.label:release/v1.0.1")
+				.applyTo(this.environment);
+		this.expected.expect(IsInstanceOf.instanceOf(IllegalStateException.class));
+		this.expected.expectMessage(
+				"Could not locate PropertySource and the fail fast property is set, failing: None of labels [release/v1.0.1] found");
+		this.locator.locate(this.environment);
 	}
 
 	@Test
@@ -94,7 +138,7 @@ public class ConfigServicePropertySourceLocatorTests {
 		mockRequestResponseWithoutLabel(
 				new ResponseEntity<>("Wah!", HttpStatus.INTERNAL_SERVER_ERROR));
 		this.locator.setRestTemplate(this.restTemplate);
-		assertNull(this.locator.locate(this.environment));
+		assertThat(this.locator.locate(this.environment)).isNull();
 	}
 
 	@Test
@@ -235,6 +279,16 @@ public class ConfigServicePropertySourceLocatorTests {
 	}
 
 	@Test
+	public void shouldThrowExceptionWhenNegativeConnectTimeoutSet() {
+		ConfigClientProperties defaults = new ConfigClientProperties(this.environment);
+		defaults.setRequestConnectTimeout(-1);
+		this.locator = new ConfigServicePropertySourceLocator(defaults);
+		this.expected.expect(IllegalStateException.class);
+		this.expected.expectMessage("Invalid Value for Connect Timeout set.");
+		ReflectionTestUtils.invokeMethod(this.locator, "getSecureRestTemplate", defaults);
+	}
+
+	@Test
 	public void checkInterceptorHasNoAuthorizationHeaderPresent() {
 		ConfigClientProperties defaults = new ConfigClientProperties(this.environment);
 		defaults.getHeaders().put(AUTHORIZATION, "Basic dXNlcm5hbWU6cGFzc3dvcmQNCg==");
@@ -247,8 +301,8 @@ public class ConfigServicePropertySourceLocatorTests {
 		while (iterator.hasNext()) {
 			GenericRequestHeaderInterceptor genericRequestHeaderInterceptor = (GenericRequestHeaderInterceptor) iterator
 					.next();
-			assertEquals(null,
-					genericRequestHeaderInterceptor.getHeaders().get(AUTHORIZATION));
+			assertThat(genericRequestHeaderInterceptor.getHeaders().get(AUTHORIZATION))
+					.isEqualTo(null);
 		}
 	}
 
@@ -256,16 +310,15 @@ public class ConfigServicePropertySourceLocatorTests {
 	private void mockRequestResponseWithLabel(ResponseEntity<?> response, String label) {
 		Mockito.when(this.restTemplate.exchange(Mockito.any(String.class),
 				Mockito.any(HttpMethod.class), Mockito.any(HttpEntity.class),
-				Mockito.any(Class.class), Matchers.anyString(), Matchers.anyString(),
-				Matchers.eq(label))).thenReturn(response);
+				Mockito.any(Class.class), anyString(), anyString(), Matchers.eq(label)))
+				.thenReturn(response);
 	}
 
 	@SuppressWarnings("unchecked")
 	private void mockRequestResponseWithoutLabel(ResponseEntity<?> response) {
 		Mockito.when(this.restTemplate.exchange(Mockito.any(String.class),
 				Mockito.any(HttpMethod.class), Mockito.any(HttpEntity.class),
-				Mockito.any(Class.class), Matchers.anyString(), Matchers.anyString()))
-				.thenReturn(response);
+				Mockito.any(Class.class), anyString(), anyString())).thenReturn(response);
 	}
 
 	@SuppressWarnings("unchecked")
@@ -273,8 +326,8 @@ public class ConfigServicePropertySourceLocatorTests {
 			ResponseEntity<?> response, String expectedName) {
 		Mockito.when(this.restTemplate.exchange(Mockito.any(String.class),
 				Mockito.any(HttpMethod.class), Mockito.any(HttpEntity.class),
-				Mockito.any(Class.class), Matchers.eq(expectedName),
-				Matchers.anyString())).thenReturn(response);
+				Mockito.any(Class.class), Matchers.eq(expectedName), anyString()))
+				.thenReturn(response);
 	}
 
 }

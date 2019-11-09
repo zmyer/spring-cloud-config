@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -22,6 +22,7 @@ import java.util.Map;
 
 import org.springframework.cloud.config.environment.Environment;
 import org.springframework.cloud.config.environment.PropertySource;
+import org.springframework.cloud.config.environment.PropertyValueDescriptor;
 import org.springframework.cloud.config.server.encryption.EnvironmentEncryptor;
 
 /**
@@ -34,6 +35,7 @@ import org.springframework.cloud.config.server.encryption.EnvironmentEncryptor;
 public class EnvironmentEncryptorEnvironmentRepository implements EnvironmentRepository {
 
 	private EnvironmentRepository delegate;
+
 	private EnvironmentEncryptor environmentEncryptor;
 
 	private Map<String, String> overrides = new LinkedHashMap<>();
@@ -50,14 +52,34 @@ public class EnvironmentEncryptorEnvironmentRepository implements EnvironmentRep
 
 	@Override
 	public Environment findOne(String name, String profiles, String label) {
-		Environment environment = this.delegate.findOne(name, profiles, label);
+		return findOne(name, profiles, label, false);
+	}
+
+	@Override
+	public Environment findOne(String name, String profiles, String label,
+			boolean includeOrigin) {
+		Environment environment = this.delegate.findOne(name, profiles, label,
+				includeOrigin);
 		if (this.environmentEncryptor != null) {
 			environment = this.environmentEncryptor.decrypt(environment);
 		}
 		if (!this.overrides.isEmpty()) {
-			environment.addFirst(new PropertySource("overrides", this.overrides));
+			environment.addFirst(
+					new PropertySource("overrides", getOverridesMap(includeOrigin)));
 		}
 		return environment;
+	}
+
+	private Map<?, ?> getOverridesMap(boolean includeOrigin) {
+		if (!includeOrigin) {
+			return this.overrides;
+		}
+		Map<Object, Object> map = new LinkedHashMap<>();
+		for (Map.Entry entry : this.overrides.entrySet()) {
+			map.put(entry.getKey(), new PropertyValueDescriptor(entry.getValue(),
+					"Config server overrides"));
+		}
+		return map;
 	}
 
 	/**

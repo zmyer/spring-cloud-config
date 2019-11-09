@@ -1,11 +1,11 @@
 /*
- * Copyright 2013-2014 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -18,6 +18,7 @@ package org.springframework.cloud.config.client;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -25,7 +26,12 @@ import java.util.Map.Entry;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
+import org.springframework.boot.env.OriginTrackedMapPropertySource;
+import org.springframework.boot.origin.Origin;
+import org.springframework.boot.origin.OriginTrackedValue;
 import org.springframework.cloud.bootstrap.config.PropertySourceLocator;
+import org.springframework.cloud.bootstrap.support.OriginTrackedCompositePropertySource;
 import org.springframework.cloud.config.client.ConfigClientProperties.Credentials;
 import org.springframework.cloud.config.environment.Environment;
 import org.springframework.cloud.config.environment.PropertySource;
@@ -44,6 +50,7 @@ import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.retry.annotation.Retryable;
+import org.springframework.util.Assert;
 import org.springframework.util.Base64Utils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpClientErrorException;
@@ -51,9 +58,10 @@ import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
+import static org.springframework.cloud.config.client.ConfigClientProperties.AUTHORIZATION;
 import static org.springframework.cloud.config.client.ConfigClientProperties.STATE_HEADER;
 import static org.springframework.cloud.config.client.ConfigClientProperties.TOKEN_HEADER;
-import static org.springframework.cloud.config.client.ConfigClientProperties.AUTHORIZATION;
+import static org.springframework.cloud.config.environment.EnvironmentMediaType.V2_JSON;
 
 /**
  * @author Dave Syer
@@ -67,6 +75,7 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 			.getLog(ConfigServicePropertySourceLocator.class);
 
 	private RestTemplate restTemplate;
+
 	private ConfigClientProperties defaultProperties;
 
 	public ConfigServicePropertySourceLocator(ConfigClientProperties defaultProperties) {
@@ -78,10 +87,10 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 	public org.springframework.core.env.PropertySource<?> locate(
 			org.springframework.core.env.Environment environment) {
 		ConfigClientProperties properties = this.defaultProperties.override(environment);
-		CompositePropertySource composite = new CompositePropertySource("configService");
+		CompositePropertySource composite = new OriginTrackedCompositePropertySource(
+				"configService");
 		RestTemplate restTemplate = this.restTemplate == null
-				? getSecureRestTemplate(properties)
-				: this.restTemplate;
+				? getSecureRestTemplate(properties) : this.restTemplate;
 		Exception error = null;
 		String errorBody = null;
 		try {
@@ -98,15 +107,15 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 				if (result != null) {
 					log(result);
 
-					if (result.getPropertySources() != null) { // result.getPropertySources()
-																// can be null if using
-																// xml
+					// result.getPropertySources() can be null if using xml
+					if (result.getPropertySources() != null) {
 						for (PropertySource source : result.getPropertySources()) {
 							@SuppressWarnings("unchecked")
-							Map<String, Object> map = (Map<String, Object>) source
-									.getSource();
+							Map<String, Object> map = translateOrigins(source.getName(),
+									(Map<String, Object>) source.getSource());
 							composite.addPropertySource(
-									new MapPropertySource(source.getName(), map));
+									new OriginTrackedMapPropertySource(source.getName(),
+											map));
 						}
 					}
 
@@ -121,6 +130,7 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 					return composite;
 				}
 			}
+			errorBody = String.format("None of labels %s found", Arrays.toString(labels));
 		}
 		catch (HttpServerErrorException e) {
 			error = e;
@@ -134,12 +144,12 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 		}
 		if (properties.isFailFast()) {
 			throw new IllegalStateException(
-					"Could not locate PropertySource and the fail fast property is set, failing" +
-						(errorBody == null ? "" : ": " + errorBody), error);
+					"Could not locate PropertySource and the fail fast property is set, failing"
+							+ (errorBody == null ? "" : ": " + errorBody),
+					error);
 		}
-		logger.warn("Could not locate PropertySource: " + (errorBody == null
-				? error == null ? "label not found" : error.getMessage()
-				: errorBody));
+		logger.warn("Could not locate PropertySource: "
+				+ (error != null ? error.getMessage() : errorBody));
 		return null;
 
 	}
@@ -167,6 +177,32 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 			}
 
 		}
+	}
+
+	private Map<String, Object> translateOrigins(String name,
+			Map<String, Object> source) {
+		Map<String, Object> withOrigins = new HashMap<>();
+		for (Map.Entry<String, Object> entry : source.entrySet()) {
+			boolean hasOrigin = false;
+
+			if (entry.getValue() instanceof Map) {
+				@SuppressWarnings("unchecked")
+				Map<String, Object> value = (Map<String, Object>) entry.getValue();
+				if (value.size() == 2 && value.containsKey("origin")
+						&& value.containsKey("value")) {
+					Origin origin = new ConfigServiceOrigin(name, value.get("origin"));
+					OriginTrackedValue trackedValue = OriginTrackedValue
+							.of(value.get("value"), origin);
+					withOrigins.put(entry.getKey(), trackedValue);
+					hasOrigin = true;
+				}
+			}
+
+			if (!hasOrigin) {
+				withOrigins.put(entry.getKey(), entry.getValue());
+			}
+		}
+		return withOrigins;
 	}
 
 	private void putValue(HashMap<String, Object> map, String key, String value) {
@@ -206,6 +242,8 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 
 			try {
 				HttpHeaders headers = new HttpHeaders();
+				headers.setAccept(
+						Collections.singletonList(MediaType.parseMediaType(V2_JSON)));
 				addAuthorizationToken(properties, headers, username, password);
 				if (StringUtils.hasText(token)) {
 					headers.add(TOKEN_HEADER, token);
@@ -226,10 +264,12 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 			catch (ResourceAccessException e) {
 				logger.info("Connect Timeout Exception on Url - " + uri
 						+ ". Will be trying the next url if available");
-				if (i == noOfUrls - 1)
+				if (i == noOfUrls - 1) {
 					throw e;
-				else
+				}
+				else {
 					continue;
+				}
 			}
 
 			if (response == null || response.getStatusCode() != HttpStatus.OK) {
@@ -252,14 +292,18 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 		if (client.getRequestReadTimeout() < 0) {
 			throw new IllegalStateException("Invalid Value for Read Timeout set.");
 		}
+		if (client.getRequestConnectTimeout() < 0) {
+			throw new IllegalStateException("Invalid Value for Connect Timeout set.");
+		}
 		requestFactory.setReadTimeout(client.getRequestReadTimeout());
+		requestFactory.setConnectTimeout(client.getRequestConnectTimeout());
 		RestTemplate template = new RestTemplate(requestFactory);
 		Map<String, String> headers = new HashMap<>(client.getHeaders());
 		if (headers.containsKey(AUTHORIZATION)) {
 			headers.remove(AUTHORIZATION); // To avoid redundant addition of header
 		}
 		if (!headers.isEmpty()) {
-			template.setInterceptors(Arrays.<ClientHttpRequestInterceptor> asList(
+			template.setInterceptors(Arrays.<ClientHttpRequestInterceptor>asList(
 					new GenericRequestHeaderInterceptor(headers)));
 		}
 
@@ -285,6 +329,9 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 
 	}
 
+	/**
+	 * Adds the provided headers to the request.
+	 */
 	public static class GenericRequestHeaderInterceptor
 			implements ClientHttpRequestInterceptor {
 
@@ -297,15 +344,37 @@ public class ConfigServicePropertySourceLocator implements PropertySourceLocator
 		@Override
 		public ClientHttpResponse intercept(HttpRequest request, byte[] body,
 				ClientHttpRequestExecution execution) throws IOException {
-			for (Entry<String, String> header : headers.entrySet()) {
+			for (Entry<String, String> header : this.headers.entrySet()) {
 				request.getHeaders().add(header.getKey(), header.getValue());
 			}
 			return execution.execute(request, body);
 		}
 
 		protected Map<String, String> getHeaders() {
-			return headers;
+			return this.headers;
 		}
 
 	}
+
+	static class ConfigServiceOrigin implements Origin {
+
+		private final String remotePropertySource;
+
+		private final Object origin;
+
+		ConfigServiceOrigin(String remotePropertySource, Object origin) {
+			this.remotePropertySource = remotePropertySource;
+			Assert.notNull(origin, "origin may not be null");
+			this.origin = origin;
+
+		}
+
+		@Override
+		public String toString() {
+			return "Config Server " + this.remotePropertySource + ":"
+					+ this.origin.toString();
+		}
+
+	}
+
 }

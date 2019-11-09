@@ -1,11 +1,11 @@
 /*
- * Copyright 2015 the original author or authors.
+ * Copyright 2015-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -31,10 +31,12 @@ import java.nio.file.WatchService;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Collections;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cloud.config.server.environment.AbstractScmEnvironmentRepository;
 import org.springframework.cloud.config.server.environment.NativeEnvironmentRepository;
@@ -42,6 +44,7 @@ import org.springframework.context.ResourceLoaderAware;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.FileUrlResource;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.http.HttpHeaders;
@@ -56,22 +59,23 @@ import org.springframework.util.PatternMatchUtils;
  * (i.e. a git repository with a "file:" URI) or to a native repository.
  *
  * @author Dave Syer
+ * @author Gilles Robert
  *
  */
-@Configuration
+@Configuration(proxyBeanMethods = false)
 @EnableScheduling
 public class FileMonitorConfiguration implements SmartLifecycle, ResourceLoaderAware {
 
 	private static final Log log = LogFactory.getLog(FileMonitorConfiguration.class);
 
 	@Autowired
-	PropertyPathEndpoint endpoint;
+	private PropertyPathEndpoint endpoint;
 
 	@Autowired(required = false)
-	AbstractScmEnvironmentRepository scmRepository;
+	private List<AbstractScmEnvironmentRepository> scmRepositories;
 
 	@Autowired(required = false)
-	NativeEnvironmentRepository nativeEnvironmentRepository;
+	private NativeEnvironmentRepository nativeEnvironmentRepository;
 
 	private boolean running;
 
@@ -98,7 +102,7 @@ public class FileMonitorConfiguration implements SmartLifecycle, ResourceLoaderA
 	}
 
 	/**
-	 * see {@link #getPhase()}
+	 * see {@link #getPhase()}.
 	 * @param phase the phase.
 	 */
 	public void setPhase(int phase) {
@@ -111,8 +115,8 @@ public class FileMonitorConfiguration implements SmartLifecycle, ResourceLoaderA
 	}
 
 	/**
-	 * @see #isRunning()
 	 * @param running true if running.
+	 * @see #isRunning()
 	 */
 	public void setRunning(boolean running) {
 		this.running = running;
@@ -124,8 +128,8 @@ public class FileMonitorConfiguration implements SmartLifecycle, ResourceLoaderA
 	}
 
 	/**
-	 * @see #isAutoStartup()
 	 * @param autoStartup true to auto start.
+	 * @see #isAutoStartup()
 	 */
 	public void setAutoStartup(boolean autoStartup) {
 		this.autoStartup = autoStartup;
@@ -184,16 +188,22 @@ public class FileMonitorConfiguration implements SmartLifecycle, ResourceLoaderA
 	}
 
 	private Set<Path> getFileRepo() {
-		if (this.scmRepository != null) {
+		if (this.scmRepositories != null) {
+			String repositoryUri = null;
+			Set<Path> paths = new LinkedHashSet<>();
 			try {
-
-				Resource resource = this.resourceLoader.getResource(this.scmRepository.getUri());
-				if (resource instanceof FileSystemResource) {
-					return Collections.singleton(Paths.get(resource.getURI()));
+				for (AbstractScmEnvironmentRepository repository : scmRepositories) {
+					repositoryUri = repository.getUri();
+					Resource resource = this.resourceLoader.getResource(repositoryUri);
+					if (resource instanceof FileSystemResource
+							|| resource instanceof FileUrlResource) {
+						paths.add(Paths.get(resource.getURI()));
+					}
 				}
+				return paths;
 			}
 			catch (IOException e) {
-				log.error("Cannot resolve URI for path: " + this.scmRepository.getUri());
+				log.error("Cannot resolve URI for path: " + repositoryUri);
 			}
 		}
 		if (this.nativeEnvironmentRepository != null) {
@@ -306,11 +316,13 @@ public class FileMonitorConfiguration implements SmartLifecycle, ResourceLoaderA
 			log.debug("registering: " + dir + " for file creation events");
 		}
 		try {
-		dir.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE,
-				StandardWatchEventKinds.ENTRY_MODIFY);
-		} catch (IOException e) {
+			dir.register(this.watcher, StandardWatchEventKinds.ENTRY_CREATE,
+					StandardWatchEventKinds.ENTRY_MODIFY);
+		}
+		catch (IOException e) {
 			throw e;
-		} catch (Exception e) {
+		}
+		catch (Exception e) {
 			throw new IOException("Cannot register watcher for " + dir, e);
 		}
 	}

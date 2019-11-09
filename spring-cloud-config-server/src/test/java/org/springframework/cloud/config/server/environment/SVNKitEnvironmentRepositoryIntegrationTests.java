@@ -1,11 +1,11 @@
 /*
- * Copyright 2013-2015 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -46,8 +46,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.util.FileSystemUtils;
 import org.springframework.util.StreamUtils;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * @author Michael Prankl
@@ -83,9 +82,8 @@ public class SVNKitEnvironmentRepositoryIntegrationTests {
 				.run("--spring.cloud.config.server.svn.uri=" + uri);
 		EnvironmentRepository repository = this.context
 				.getBean(EnvironmentRepository.class);
-		repository.findOne("bar", "staging", "trunk");
 		Environment environment = repository.findOne("bar", "staging", "trunk");
-		assertEquals(2, environment.getPropertySources().size());
+		assertThat(environment.getPropertySources().size()).isEqualTo(2);
 	}
 
 	@Test
@@ -97,14 +95,13 @@ public class SVNKitEnvironmentRepositoryIntegrationTests {
 				.run("--spring.cloud.config.server.svn.uri=" + uri);
 		EnvironmentRepository repository = this.context
 				.getBean(EnvironmentRepository.class);
-		repository.findOne("bar", "staging", "trunk");
 		Environment environment = repository.findOne("bar", "staging", "trunk");
-		assertEquals("bar",
-				environment.getPropertySources().get(0).getSource().get("foo"));
+		assertThat(environment.getPropertySources().get(0).getSource().get("foo"))
+				.isEqualTo("bar");
 		updateRepoForUpdate(uri);
 		environment = repository.findOne("bar", "staging", "trunk");
-		assertEquals("foo",
-				environment.getPropertySources().get(0).getSource().get("foo"));
+		assertThat(environment.getPropertySources().get(0).getSource().get("foo"))
+				.isEqualTo("foo");
 	}
 
 	private void updateRepoForUpdate(String uri)
@@ -135,7 +132,7 @@ public class SVNKitEnvironmentRepositoryIntegrationTests {
 				.run("--spring.cloud.config.server.svn.uri=" + uri);
 		SvnKitEnvironmentRepository repository = this.context
 				.getBean(SvnKitEnvironmentRepository.class);
-		assertEquals("trunk", repository.getDefaultLabel());
+		assertThat(repository.getDefaultLabel()).isEqualTo("trunk");
 	}
 
 	@Test(expected = NoSuchLabelException.class)
@@ -147,9 +144,8 @@ public class SVNKitEnvironmentRepositoryIntegrationTests {
 				.run("--spring.cloud.config.server.svn.uri=" + uri);
 		EnvironmentRepository repository = this.context
 				.getBean(EnvironmentRepository.class);
-		repository.findOne("bar", "staging", "unknownlabel");
 		Environment environment = repository.findOne("bar", "staging", "unknownlabel");
-		assertEquals(0, environment.getPropertySources().size());
+		assertThat(environment.getPropertySources().size()).isEqualTo(0);
 	}
 
 	@Test
@@ -162,16 +158,17 @@ public class SVNKitEnvironmentRepositoryIntegrationTests {
 		EnvironmentRepository repository = this.context
 				.getBean(EnvironmentRepository.class);
 		Environment environment = repository.findOne("bar", "staging", "demobranch");
-		assertTrue(environment.getPropertySources().get(0).getName()
-				.contains("bar.properties"));
-		assertEquals(1, environment.getPropertySources().size());
+		assertThat(environment.getPropertySources().get(0).getName()
+				.contains("bar.properties")).isTrue();
+		assertThat(environment.getPropertySources().size()).isEqualTo(1);
 	}
 
-	@Configuration
+	@Configuration(proxyBeanMethods = false)
 	@EnableConfigurationProperties(ConfigServerProperties.class)
 	@Import({ PropertyPlaceholderAutoConfiguration.class,
 			EnvironmentRepositoryConfiguration.class })
 	protected static class TestConfiguration {
+
 	}
 
 }

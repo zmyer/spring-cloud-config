@@ -1,11 +1,11 @@
 /*
- * Copyright 2013-2014 the original author or authors.
+ * Copyright 2013-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
  *
- *      http://www.apache.org/licenses/LICENSE-2.0
+ *      https://www.apache.org/licenses/LICENSE-2.0
  *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
@@ -43,11 +43,13 @@ import org.springframework.context.event.SmartApplicationListener;
  *
  * @author Dave Syer
  */
-@ConditionalOnProperty(value = "spring.cloud.config.discovery.enabled", matchIfMissing = false)
-@Configuration
+@ConditionalOnProperty(value = "spring.cloud.config.discovery.enabled",
+		matchIfMissing = false)
+@Configuration(proxyBeanMethods = false)
 @Import({ UtilAutoConfiguration.class })
 @EnableDiscoveryClient
-public class DiscoveryClientConfigServiceBootstrapConfiguration implements SmartApplicationListener {
+public class DiscoveryClientConfigServiceBootstrapConfiguration
+		implements SmartApplicationListener {
 
 	private static Log logger = LogFactory
 			.getLog(DiscoveryClientConfigServiceBootstrapConfiguration.class);
@@ -76,7 +78,8 @@ public class DiscoveryClientConfigServiceBootstrapConfiguration implements Smart
 	public void onApplicationEvent(ApplicationEvent event) {
 		if (event instanceof ContextRefreshedEvent) {
 			startup((ContextRefreshedEvent) event);
-		} else if (event instanceof HeartbeatEvent) {
+		}
+		else if (event instanceof HeartbeatEvent) {
 			heartbeat((HeartbeatEvent) event);
 		}
 	}
@@ -86,7 +89,7 @@ public class DiscoveryClientConfigServiceBootstrapConfiguration implements Smart
 	}
 
 	public void heartbeat(HeartbeatEvent event) {
-		if (monitor.update(event.getValue())) {
+		if (this.monitor.update(event.getValue())) {
 			refresh();
 		}
 	}
@@ -128,7 +131,7 @@ public class DiscoveryClientConfigServiceBootstrapConfiguration implements Smart
 
 		}
 		catch (Exception ex) {
-			if (config.isFailFast()) {
+			if (this.config.isFailFast()) {
 				throw ex;
 			}
 			else {
